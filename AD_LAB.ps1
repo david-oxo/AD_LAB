@@ -254,8 +254,10 @@ $ADLab_VER = '1.0'
             Write-Host ' Interfaz: ',$obj.InterfaceAlias,$obj.PrefixOrigin -ForegroundColor $netColor
             Write-Host '   IP: ',$obj.IPAddress,'/',$obj.PrefixLength -ForegroundColor $netColor
             $IFGateway = (Get-NetRoute -InterfaceIndex $obj.InterfaceIndex | where {$_.DestinationPrefix -eq '0.0.0.0/0'}).NextHop
-            if ( $IFGateway.count -ne '' )  { Write-Host '   Gateway: ',$IFGateway -ForegroundColor $netColor }
+            if ( $IFGateway.count -ne '' ) { Write-Host '   Gateway: ',$IFGateway -ForegroundColor $netColor }
             # DNS
+            $IFDns = (Get-DnsClientServerAddress -InterfaceIndex $obj.InterfaceIndex -AddressFamily IPv4).ServerAddresses
+            if ( $IFDns.count -ne '' ) { Write-Host '   DNS: ',$IFDns -ForegroundColor $netColor }
         } 
        
     }
@@ -545,10 +547,14 @@ $ADLab_VER = '1.0'
 
 
 # MAIN
+infomaquina; Start-Sleep -Seconds 10;
+if ( ($Global:AdminPassword -eq '') ) { Write-Host "Necesito el password de Administrador del dominio" -BackgroundColor Yellow -ForegroundColor Blue ; $Global:AdminPassword = Read-host "Administrator password: " }
+if ( ($Global:AdminPassword -eq '') ) { Write-Bad "Unable to find admin password " ; exit; }
+
+
 while ($true) {
     Clear-Host
     PSBanner
-    infomaquina
     Write-Host "
     --------------------
   __  __ ______ _   _ _    _ 
@@ -559,9 +565,7 @@ while ($true) {
  |_|  |_|______|_| \_|\____/ 
                      
     "
-    if ( ($Global:AdminPassword -eq '') ) { Write-Host "Necesito el password de Administrador" -BackgroundColor Yellow -ForegroundColor Blue ; $Global:AdminPassword = Read-host "Administrator password: " }
-    if ( ($Global:AdminPassword -eq '') ) { Write-Bad "Unable to find admin password " ; exit; }
-
+    if ( ($Global:AdminPassword -eq '') ) { Write-Host "Unable to find admin password " -BackgroundColor Yellow -ForegroundColor Blue ;  }
     Write-Host "1) Renombrar maquina " -ForegroundColor Gray
     Write-Host "2) Quitar UAC " -ForegroundColor Gray
     Write-Host "3) Quitar Firewall " -ForegroundColor Gray
@@ -585,6 +589,7 @@ while ($true) {
     Write-Host "17) [DC] DisableSMBSigning - SMBRelay" -ForegroundColor $(menucolor(2))
     Write-Host ""
     Write-Host "0) Ayuda"
+    Write-Host "00) Info maquina"
     Write-Host "99) Salir "
     Write-Host ""
     $option = Read-Host "Selecciona una accion"
@@ -616,6 +621,7 @@ while ($true) {
         17 { if ((Get-OSType) -eq 2 ) { VulnAD-DisableSMBSigning } }
         
         0  { helpme }
+        00  { infomaquina; Start-Sleep -Seconds 10; }
         99 { exit }
         Default {"Please select right option!!!"}
     

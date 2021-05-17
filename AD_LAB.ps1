@@ -2,7 +2,7 @@
 #Requires -Version 5.0
 
 # i took some ideas from https://github.com/WazeHell/vulnerable-AD/blob/master/vulnad.ps1 Thanks!
-$ADLab_VER = '1.0'
+$ADLab_VER = '1.1'
 add-type -AssemblyName System.Web
 
 # Variables 
@@ -71,6 +71,19 @@ add-type -AssemblyName System.Web
          [array]$InputList
        )
        return Get-Random -InputObject $InputList
+    }
+    function GetAllADUsers {
+        param ()
+        return Get-ADUser -Filter 'Name -ne "Administrator" -and Name -ne "krbtgt" -and Name -ne "Guest"';
+    }
+    function GetAllADGroups {
+        param ()
+        $groupFilter = ''
+        foreach ( $obj in $Global:HighGroups) { $groupFilter += ' Name -eq "'+$obj+'" -or';}
+        foreach ( $obj in $Global:MidGroups) { $groupFilter += ' Name -eq "'+$obj+'" -or';}
+        foreach ( $obj in $Global:NormalGroups) { $groupFilter += ' Name -eq "'+$obj+'"'; if ($obj -ne $Global:NormalGroups[-1]) { $groupFilter += ' -or' } }
+
+        return Get-ADGroup -Filter $groupFilter;
     }
     function menucolor(){ 
         Param(
@@ -380,13 +393,11 @@ add-type -AssemblyName System.Web
                         if (!(Test-Path -Path "$pwd\$foldername")) { New-Item "$pwd\$foldername" -Type Directory | Out-Null }
                         if (!( Get-SMBShare -Name $foldername -ea 0 )){
                             # # 
-                            $rUser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *))
-                            $ServiceAccount = Get-ADServiceAccount -Filter 'Name -like "*Klaus Lowe*"' | Select-Object -ExpandProperty Name
-                            
+                            $rUser = (VulnAD-GetRandom -InputList $(GetAllADUsers))                            
                             New-SmbShare -Name "$foldername" -Path "$pwd\$foldername" -ChangeAccess $rUser.SamAccountName -ReadAccess Everyone -ErrorAction Stop | Out-Null 
                             Get-MD5($foldername) | Out-File -FilePath "$pwd\$foldername\changethisflag.txt"
                                                         
-                            Write-Good "$foldername Created and Shared to $rUser.Name"
+                            Write-Good "$foldername Created and Shared to",$ruser.Name
                         }
                     }
                     catch {
@@ -448,18 +459,18 @@ add-type -AssemblyName System.Web
 
                 for ($i=1; $i -le (Get-Random -Maximum 25); $i=$i+1 ) {
                     $abuse = (VulnAD-GetRandom -InputList $Global:BadACL);
-                    $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *))
-                    $randomgroup = (VulnAD-GetRandom -InputList $(Get-ADGroup -Filter *))
-
+                    $randomuser = (VulnAD-GetRandom -InputList $(GetAllADUsers))
+                    $randomgroup = (VulnAD-GetRandom -InputList $(GetAllADGroups))
+                   
                     if ((Get-Random -Maximum 2)){
-                        $Dstobj = Get-ADUser -Identity $randomuser
-                        $Srcobj = Get-ADGroup -Identity $randomgroup
+                        $Dstobj = $randomuser.DistinguishedName
+                        $Srcobj = $randomgroup.sid
                     }else{
-                        $Srcobj = Get-ADUser -Identity $randomuser
-                        $Dstobj = Get-ADGroup -Identity $randomgroup
+                        $Srcobj = $randomuser.sid
+                        $Dstobj = $randomgroup.DistinguishedName
                     }
                     try {
-                        VulnAD-AddACL -Source $Srcobj.sid -Destination $Dstobj.DistinguishedName -Rights $abuse 
+                        VulnAD-AddACL -Source $Srcobj -Destination $Dstobj -Rights $abuse 
                         Write-Good "BadACL $abuse $randomuser and $randomgroup"
                     } catch { Write-BAD "ERROR: BadACL $abuse $randomuser and $randomgroup" }
                 }
@@ -487,7 +498,7 @@ add-type -AssemblyName System.Web
         # ASREPRoasting // FIXED
             function VulnAD-ASREPRoasting {
                 for ($i=1; $i -le (Get-Random -Maximum 6); $i=$i+1 ) {
-                    $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *));
+                    $randomuser = (VulnAD-GetRandom -InputList $(GetAllADUsers));
                     $password = VulnAD-GetRandom -InputList $Global:BadPasswords;
                     Write-Info "AS-REPRoasting $randomuser"
                     try {
@@ -501,7 +512,7 @@ add-type -AssemblyName System.Web
             function VulnAD-DnsAdmins {
                 Write-info "DNSAdmin"
                 for ($i=1; $i -le (Get-Random -Maximum 6); $i=$i+1 ) {
-                    $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *));
+                    $randomuser = (VulnAD-GetRandom -InputList $(GetAllADUsers));
                     try {
                         Add-ADGroupMember -Identity "DnsAdmins" -Members $randomuser
                         Write-Good "DnsAdmins : $randomuser"
@@ -517,7 +528,7 @@ add-type -AssemblyName System.Web
             function VulnAD-DefaultPassword {
                 write-info "Default Passwords"
                 for ($i=1; $i -le (Get-Random -Maximum 6); $i=$i+1 ) {
-                    $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *));
+                    $randomuser = (VulnAD-GetRandom -InputList $(GetAllADUsers));
                     $password = ([System.Web.Security.Membership]::GeneratePassword(12,2))
                     try {
                         Set-AdAccountPassword -Identity $randomuser -Reset -NewPassword (ConvertTo-SecureString $password -AsPlainText -Force)
@@ -530,8 +541,8 @@ add-type -AssemblyName System.Web
             function VulnAD-PasswordSpraying {
                 $password = ([System.Web.Security.Membership]::GeneratePassword(12,2));
                 write-info "PasswordSpraying attack"
-                for ($i=1; $i -le (Get-Random -Maximum 6); $i=$i+1 ) {
-                    $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *));
+                for ($i=1; $i -le (Get-Random -Maximum 6 -Minimum 2); $i=$i+1 ) {
+                    $randomuser = (VulnAD-GetRandom -InputList $(GetAllADUsers));
                     try {
                         Set-AdAccountPassword -Identity $randomuser -Reset -NewPassword (ConvertTo-SecureString $password -AsPlainText -Force)
                         Set-ADUser $randomuser -Description "PasswordSpraying $password"
@@ -544,7 +555,7 @@ add-type -AssemblyName System.Web
                 Write-info "DCSync"
                 for ($i=1; $i -le (Get-Random -Maximum 6); $i=$i+1 ) {
                     try {
-                        $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *));
+                        $randomuser = (VulnAD-GetRandom -InputList $(GetAllADUsers));
 
                         $userobject = (Get-ADUser -Identity $randomuser).distinguishedname
                         $ACL = Get-Acl -Path "AD:\$userobject"
@@ -563,7 +574,7 @@ add-type -AssemblyName System.Web
                         $ACL.psbase.AddAccessRule($ACEGetChanges)
 
                         Set-ADUser $randomuser -Description "Replication Account"
-                        Write-Info "Giving DCSync to : $randomuser"
+                        Write-GOOD "OK: Giving DCSync to : $randomuser"
                     } catch { Write-BAD "ERROR: Giving DCSync to : $randomuser" }
                 }
             }
@@ -575,6 +586,25 @@ add-type -AssemblyName System.Web
                     Write-GOOD "OK: DisableSMBSigning - SMBRelay"
                 } catch { Write-BAD "ERROR: DisableSMBSigning - SMBRelay" }
             }
+        # Enable SMB1
+            function VulnAD-SMB1 {
+                Write-Info "Installing / Enabling SMBv1"
+                $smbv1 = $(Get-WindowsOptionalFeature -Online -FeatureName smb1protocol);
+                if ( $smbv1.State -eq 'Enabled' ) { 
+                    try {
+                        Set-SmbServerConfiguration -EnableSMB1Protocol $true -Confirm:$false -Force 
+                        Write-GOOD "OK: Enabling SMBv1"
+                    } catch { Write-BAD "ERROR: Enabling SMBv1" }
+                } else {
+                    try {
+                        Enable-WindowsOptionalFeature -Online -FeatureName smb1protocol  -ErrorAction Stop -NoRestart
+                        Start-Sleep -Seconds 3
+                        Restart-Computer
+                        Write-GOOD "OK: Installing SMBv1"
+                        exit
+                    } catch { Write-BAD "ERROR: Installing SMBv1" }
+                }
+            }
 ##########################
 
 
@@ -585,6 +615,7 @@ if ( ($Global:AdminPassword -eq '') ) { Write-Bad "Unable to find admin password
 
 
 while ($true) {
+    $status_smbv1 = $(Get-WindowsOptionalFeature -Online -FeatureName smb1protocol);
     Clear-Host
     PSBanner
     Write-Host "
@@ -598,6 +629,7 @@ while ($true) {
                      
     "
     if ( ($Global:AdminPassword -eq '') ) { Write-Host "Unable to find admin password " -BackgroundColor Yellow -ForegroundColor Blue ;  }
+    Write-Host "0) Info maquina"
     Write-Host "1) Renombrar maquina " -ForegroundColor Gray
     Write-Host "2) Quitar UAC " -ForegroundColor Gray
     Write-Host "3) Quitar Firewall " -ForegroundColor Gray
@@ -619,14 +651,22 @@ while ($true) {
     Write-Host "15) [DC] PasswordSpraying" -ForegroundColor $(menucolor(2))
     Write-Host "16) [DC] DCSync" -ForegroundColor $(menucolor(2))
     Write-Host "17) [DC] DisableSMBSigning - SMBRelay" -ForegroundColor $(menucolor(2))
+    
+    
+    if ( $status_smbv1.State -eq 'Enabled' ) {
+        Write-Host "18) [DC] Enable SMBv1" -ForegroundColor $(menucolor(2)) 
+    } else { 
+        Write-Host "18) [DC] Install SMBv1" -ForegroundColor $(menucolor(2)) 
+    } 
+
     Write-Host ""
-    Write-Host "0) Ayuda"
-    Write-Host "00) Info maquina"
+    Write-Host "?) Ayuda"
     Write-Host "99) Salir "
     Write-Host ""
     $option = Read-Host "Selecciona una accion"
 
     switch ($option) {
+        0  { infomaquina; Start-Sleep -Seconds 10; }
         1 { if ( (Change-Name) -eq $true) { Restart-Computer; exit; } }
         2 { if ( (Bye-UAC) -eq $true) { Restart-Computer; exit; } }
         3 { Bye-Firewall }
@@ -651,9 +691,9 @@ while ($true) {
         15 { if ((Get-OSType) -eq 2 ) { VulnAD-PasswordSpraying } }
         16 { if ((Get-OSType) -eq 2 ) { VulnAD-DCSync } }
         17 { if ((Get-OSType) -eq 2 ) { VulnAD-DisableSMBSigning } }
+        18 { if ((Get-OSType) -eq 2 ) { VulnAD-SMB1 } }
         
-        0  { helpme }
-        00  { infomaquina; Start-Sleep -Seconds 10; }
+        ?  { helpme }
         99 { exit }
         Default {"Please select right option!!!"}
     

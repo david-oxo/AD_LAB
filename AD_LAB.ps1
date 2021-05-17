@@ -3,6 +3,7 @@
 
 # i took some ideas from https://github.com/WazeHell/vulnerable-AD/blob/master/vulnad.ps1 Thanks!
 $ADLab_VER = '1.0'
+add-type -AssemblyName System.Web
 
 # Variables 
     # Base Lists 
@@ -396,7 +397,7 @@ $ADLab_VER = '1.0'
         }
     
     # Vulns
-        # BadAcls
+        # BadAcls // FIXED
             function VulnAD-AddACL {
                     [CmdletBinding()]
                     param(
@@ -423,26 +424,33 @@ $ADLab_VER = '1.0'
                     $ADObject.psbase.commitchanges()
             }
             function VulnAD-BadAcls {
+                
                 foreach ($abuse in $Global:BadACL) {
                     $ngroup = VulnAD-GetRandom -InputList $Global:NormalGroups
                     $mgroup = VulnAD-GetRandom -InputList $Global:MidGroups
                     $DstGroup = Get-ADGroup -Identity $mgroup
                     $SrcGroup = Get-ADGroup -Identity $ngroup
-                    VulnAD-AddACL -Source $SrcGroup.sid -Destination $DstGroup.DistinguishedName -Rights $abuse
-                    Write-Info "BadACL $abuse $ngroup to $mgroup"
+                    try {
+                        VulnAD-AddACL -Source $SrcGroup.sid -Destination $DstGroup.DistinguishedName -Rights $abuse
+                        Write-Good "BadACL $abuse $ngroup to $mgroup"
+                    } catch { Write-BAD "ERROR: BadACL $abuse $ngroup to $mgroup" }
                 }
                 foreach ($abuse in $Global:BadACL) {
                     $hgroup = VulnAD-GetRandom -InputList $Global:HighGroups
                     $mgroup = VulnAD-GetRandom -InputList $Global:MidGroups
                     $DstGroup = Get-ADGroup -Identity $hgroup
                     $SrcGroup = Get-ADGroup -Identity $mgroup
-                    VulnAD-AddACL -Source $SrcGroup.sid -Destination $DstGroup.DistinguishedName -Rights $abuse
-                    Write-Info "BadACL $abuse $mgroup to $hgroup"
+                    try {
+                        VulnAD-AddACL -Source $SrcGroup.sid -Destination $DstGroup.DistinguishedName -Rights $abuse
+                        Write-Good "BadACL $abuse $mgroup to $hgroup"
+                    } catch { Write-BAD "ERROR: BadACL $abuse $ngroup to $mgroup" }
                 }
+
                 for ($i=1; $i -le (Get-Random -Maximum 25); $i=$i+1 ) {
                     $abuse = (VulnAD-GetRandom -InputList $Global:BadACL);
-                    $randomuser = VulnAD-GetRandom -InputList $Global:CreatedUsers
-                    $randomgroup = VulnAD-GetRandom -InputList $Global:AllObjects
+                    $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *))
+                    $randomgroup = (VulnAD-GetRandom -InputList $(Get-ADGroup -Filter *))
+
                     if ((Get-Random -Maximum 2)){
                         $Dstobj = Get-ADUser -Identity $randomuser
                         $Srcobj = Get-ADGroup -Identity $randomgroup
@@ -450,12 +458,15 @@ $ADLab_VER = '1.0'
                         $Srcobj = Get-ADUser -Identity $randomuser
                         $Dstobj = Get-ADGroup -Identity $randomgroup
                     }
-                    VulnAD-AddACL -Source $Srcobj.sid -Destination $Dstobj.DistinguishedName -Rights $abuse 
-                    Write-Info "BadACL $abuse $randomuser and $randomgroup"
+                    try {
+                        VulnAD-AddACL -Source $Srcobj.sid -Destination $Dstobj.DistinguishedName -Rights $abuse 
+                        Write-Good "BadACL $abuse $randomuser and $randomgroup"
+                    } catch { Write-BAD "ERROR: BadACL $abuse $randomuser and $randomgroup" }
                 }
             }
-        # Kerberoasting
+        # Kerberoasting // FIXED
             function VulnAD-Kerberoasting {
+                Write-info "Kerberoasting"
                 $selected_service = (VulnAD-GetRandom -InputList $Global:ServicesAccountsAndSPNs)
                 $svc = $selected_service.split(',')[0];
                 $spn = $selected_service.split(',')[1];
@@ -473,75 +484,96 @@ $ADLab_VER = '1.0'
                     }
                 }
             }
-        # ASREPRoasting
+        # ASREPRoasting // FIXED
             function VulnAD-ASREPRoasting {
                 for ($i=1; $i -le (Get-Random -Maximum 6); $i=$i+1 ) {
-                    $randomuser = (VulnAD-GetRandom -InputList $Global:CreatedUsers)
+                    $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *));
                     $password = VulnAD-GetRandom -InputList $Global:BadPasswords;
-                    Set-AdAccountPassword -Identity $randomuser -Reset -NewPassword (ConvertTo-SecureString $password -AsPlainText -Force)
-                    Set-ADAccountControl -Identity $randomuser -DoesNotRequirePreAuth 1
                     Write-Info "AS-REPRoasting $randomuser"
+                    try {
+                        Set-AdAccountPassword -Identity $randomuser -Reset -NewPassword (ConvertTo-SecureString $password -AsPlainText -Force)
+                        Set-ADAccountControl -Identity $randomuser -DoesNotRequirePreAuth 1
+                        Write-Good "OK: AS-REPRoasting $randomuser"
+                    } catch { Write-BAD "ERROR: AS-REPRoasting $randomuser" }
                 }
             }
-        # DnsAdmins
+        # DnsAdmins // FIXED
             function VulnAD-DnsAdmins {
+                Write-info "DNSAdmin"
                 for ($i=1; $i -le (Get-Random -Maximum 6); $i=$i+1 ) {
-                    $randomuser = (VulnAD-GetRandom -InputList $Global:CreatedUsers)
-                    Add-ADGroupMember -Identity "DnsAdmins" -Members $randomuser
-                    Write-Info "DnsAdmins : $randomuser"
+                    $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *));
+                    try {
+                        Add-ADGroupMember -Identity "DnsAdmins" -Members $randomuser
+                        Write-Good "DnsAdmins : $randomuser"
+                    } catch { Write-BAD "ERROR: DnsAdmins : $randomuser" }
                 }
                 $randomg = (VulnAD-GetRandom -InputList $Global:MidGroups)
-                Add-ADGroupMember -Identity "DnsAdmins" -Members $randomg
-                Write-Info "DnsAdmins Nested Group : $randomg"
+                try {
+                    Add-ADGroupMember -Identity "DnsAdmins" -Members $randomg
+                    Write-Good "DnsAdmins Nested Group : $randomg"
+                } catch { Write-BAD "ERROR: DnsAdmins Nested Group : $randomg" }
             }
-        # DefaultPassword
+        # DefaultPassword // FIXED
             function VulnAD-DefaultPassword {
+                write-info "Default Passwords"
                 for ($i=1; $i -le (Get-Random -Maximum 6); $i=$i+1 ) {
-                    $randomuser = (VulnAD-GetRandom -InputList $Global:CreatedUsers)
+                    $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *));
                     $password = ([System.Web.Security.Membership]::GeneratePassword(12,2))
-                    Set-AdAccountPassword -Identity $randomuser -Reset -NewPassword (ConvertTo-SecureString $password -AsPlainText -Force)
-                    Set-ADUser $randomuser -Description "need to be changed $password"
-                    Write-Info "Password in Description : $randomuser"
+                    try {
+                        Set-AdAccountPassword -Identity $randomuser -Reset -NewPassword (ConvertTo-SecureString $password -AsPlainText -Force)
+                        Set-ADUser $randomuser -Description "need to be changed $password"
+                        Write-Good "Password in Description : $randomuser (pass: $password)"
+                    } catch { Write-BAD "ERROR: Password in Description : $randomuser (pass: $password)" }
                 }
             }
-        # PasswordSpraying
+        # PasswordSpraying // FIXED
             function VulnAD-PasswordSpraying {
-                $same_password = ([System.Web.Security.Membership]::GeneratePassword(12,2))
-                for ($i=1; $i -le (Get-Random -Maximum 12); $i=$i+1 ) {
-                    $randomuser = (VulnAD-GetRandom -InputList $Global:CreatedUsers)
-                    Set-AdAccountPassword -Identity $randomuser -Reset -NewPassword (ConvertTo-SecureString $same_password -AsPlainText -Force)
-                    Set-ADUser $randomuser -Description "default password"
-                    Write-Info "Same Password (Password Spraying) : $randomuser"
-                }
-            }
-        # DCSync
-            function VulnAD-DCSync {
+                $password = ([System.Web.Security.Membership]::GeneratePassword(12,2));
+                write-info "PasswordSpraying attack"
                 for ($i=1; $i -le (Get-Random -Maximum 6); $i=$i+1 ) {
-                    $randomuser = (VulnAD-GetRandom -InputList $Global:CreatedUsers)
-
-                    $userobject = (Get-ADUser -Identity $randomuser).distinguishedname
-                    $ACL = Get-Acl -Path "AD:\$userobject"
-                    $sid = (Get-ADUser -Identity $randomuser).sid
-
-                    $objectGuidGetChanges = New-Object Guid 1131f6aa-9c07-11d1-f79f-00c04fc2dcd2
-                    $ACEGetChanges = New-Object DirectoryServices.ActiveDirectoryAccessRule($sid,'ExtendedRight','Allow',$objectGuidGetChanges)
-                    $ACL.psbase.AddAccessRule($ACEGetChanges)
-
-                    $objectGuidGetChanges = New-Object Guid 1131f6ad-9c07-11d1-f79f-00c04fc2dcd2
-                    $ACEGetChanges = New-Object DirectoryServices.ActiveDirectoryAccessRule($sid,'ExtendedRight','Allow',$objectGuidGetChanges)
-                    $ACL.psbase.AddAccessRule($ACEGetChanges)
-
-                    $objectGuidGetChanges = New-Object Guid 89e95b76-444d-4c62-991a-0facbeda640c
-                    $ACEGetChanges = New-Object DirectoryServices.ActiveDirectoryAccessRule($sid,'ExtendedRight','Allow',$objectGuidGetChanges)
-                    $ACL.psbase.AddAccessRule($ACEGetChanges)
-
-                    Set-ADUser $randomuser -Description "Replication Account"
-                    Write-Info "Giving DCSync to : $randomuser"
+                    $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *));
+                    try {
+                        Set-AdAccountPassword -Identity $randomuser -Reset -NewPassword (ConvertTo-SecureString $password -AsPlainText -Force)
+                        Set-ADUser $randomuser -Description "PasswordSpraying $password"
+                        Write-Good "PasswordSpraying : $randomuser (pass: $password)"
+                    } catch { Write-BAD "ERROR: PasswordSpraying : $randomuser (pass: $password)" }
                 }
             }
-        # DisableSMBSigning - SMBRelay
+        # DCSync // FIXED
+            function VulnAD-DCSync {
+                Write-info "DCSync"
+                for ($i=1; $i -le (Get-Random -Maximum 6); $i=$i+1 ) {
+                    try {
+                        $randomuser = (VulnAD-GetRandom -InputList $(Get-ADUser -Filter *));
+
+                        $userobject = (Get-ADUser -Identity $randomuser).distinguishedname
+                        $ACL = Get-Acl -Path "AD:\$userobject"
+                        $sid = (Get-ADUser -Identity $randomuser).sid
+
+                        $objectGuidGetChanges = New-Object Guid 1131f6aa-9c07-11d1-f79f-00c04fc2dcd2
+                        $ACEGetChanges = New-Object DirectoryServices.ActiveDirectoryAccessRule($sid,'ExtendedRight','Allow',$objectGuidGetChanges)
+                        $ACL.psbase.AddAccessRule($ACEGetChanges)
+
+                        $objectGuidGetChanges = New-Object Guid 1131f6ad-9c07-11d1-f79f-00c04fc2dcd2
+                        $ACEGetChanges = New-Object DirectoryServices.ActiveDirectoryAccessRule($sid,'ExtendedRight','Allow',$objectGuidGetChanges)
+                        $ACL.psbase.AddAccessRule($ACEGetChanges)
+
+                        $objectGuidGetChanges = New-Object Guid 89e95b76-444d-4c62-991a-0facbeda640c
+                        $ACEGetChanges = New-Object DirectoryServices.ActiveDirectoryAccessRule($sid,'ExtendedRight','Allow',$objectGuidGetChanges)
+                        $ACL.psbase.AddAccessRule($ACEGetChanges)
+
+                        Set-ADUser $randomuser -Description "Replication Account"
+                        Write-Info "Giving DCSync to : $randomuser"
+                    } catch { Write-BAD "ERROR: Giving DCSync to : $randomuser" }
+                }
+            }
+        # DisableSMBSigning - SMBRelay // FIXED
             function VulnAD-DisableSMBSigning {
-                Set-SmbClientConfiguration -RequireSecuritySignature 0 -EnableSecuritySignature 0 -Confirm -Force
+                write-info "DisableSMBSigning - SMBRelay"
+                try {
+                    Set-SmbClientConfiguration -RequireSecuritySignature 0 -EnableSecuritySignature 0 -Confirm -Force
+                    Write-GOOD "OK: DisableSMBSigning - SMBRelay"
+                } catch { Write-BAD "ERROR: DisableSMBSigning - SMBRelay" }
             }
 ##########################
 

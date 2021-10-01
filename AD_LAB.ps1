@@ -173,6 +173,7 @@ add-type -AssemblyName System.Web
             else {
                 Rename-Computer -NewName (VulnAD-GetRandom -InputList $Global:ServerNames).toUpper() -PassThru -ErrorAction Stop 
             }
+			Change-Wallpaper
         } 
         catch {
             Write-Bad "Unable to rename the Machine."
@@ -181,6 +182,30 @@ add-type -AssemblyName System.Web
         } 
         return $true
     }
+# Change Wallpaper
+	function Change-Wallpaper {
+		param()
+		try {
+			# https://stackoverflow.com/questions/22447326/powershell-download-image-from-an-image-url
+
+			$MyDocs = [Environment]::GetFolderPath([System.Environment+SpecialFolder]::MyDocuments)
+			
+			$wc = New-Object System.Net.WebClient
+			$wc.DownloadFile("http://www.wallfizz.com/art-design/logo/6499-evil-corp-WallFizz.jpg", "$MyDocs\ecorp.jpg")
+
+			Set-ItemProperty -path 'HKCU:\Control Panel\Desktop\' -name wallpaper -value "$MyDocs\ecorp.jpg"
+
+			rundll32.exe user32.dll, UpdatePerUserSystemParameters
+
+			kill -n explorer
+		}
+		catch {
+            Write-Bad "Unable to rename the Machine."
+            Start-Sleep -Seconds 10
+            return $false
+        } 
+        return $true
+	}
 # Change IP
     function Change-IP {
         param()
@@ -483,15 +508,17 @@ add-type -AssemblyName System.Web
                 $spn = $selected_service.split(',')[1];
                 $password = VulnAD-GetRandom -InputList $Global:BadPasswords;
                 Write-Info "Kerberoasting $svc $spn"
-                Try { New-ADServiceAccount -Name $svc -ServicePrincipalNames "$svc/$spn.$Global:Domain" -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) -RestrictToSingleComputer -PassThru } Catch {}
+                #Try { New-ADServiceAccount -Name $svc -ServicePrincipalNames "$svc/$spn.$Global:Domain" -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) -RestrictToSingleComputer -PassThru } Catch {}
+                New-ADServiceAccount -Name $svc -ServicePrincipalNames "$svc/$spn.$Global:Domain" -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) -RestrictToSingleComputer -PassThru
+
                 foreach ($sv in $Global:ServicesAccountsAndSPNs) {
                     if ($selected_service -ne $sv) {
                         $svc = $sv.split(',')[0];
                         $spn = $sv.split(',')[1];
                         Write-Info "Creating $svc services account"
                         $password = ([System.Web.Security.Membership]::GeneratePassword(12,2))
-                        Try { New-ADServiceAccount -Name $svc -ServicePrincipalNames "$svc/$spn.$Global:Domain" -RestrictToSingleComputer -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) -PassThru } Catch {}
-
+                        #Try { New-ADServiceAccount -Name $svc -ServicePrincipalNames "$svc/$spn.$Global:Domain" -RestrictToSingleComputer -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) -PassThru } Catch {}
+                        New-ADServiceAccount -Name $svc -ServicePrincipalNames "$svc/$spn.$Global:Domain" -RestrictToSingleComputer -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) -PassThru
                     }
                 }
             }
@@ -616,7 +643,7 @@ if ( ($Global:AdminPassword -eq '') ) { Write-Bad "Unable to find admin password
 
 while ($true) {
     $status_smbv1 = $(Get-WindowsOptionalFeature -Online -FeatureName smb1protocol);
-    Clear-Host
+    #Clear-Host
     PSBanner
     Write-Host "
     --------------------

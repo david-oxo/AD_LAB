@@ -200,7 +200,7 @@ add-type -AssemblyName System.Web
 			kill -n explorer
 		}
 		catch {
-            Write-Bad "Unable to rename the Machine."
+            Write-Bad "Unable to change wallpaper."
             Start-Sleep -Seconds 10
             return $false
         } 
